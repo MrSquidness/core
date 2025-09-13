@@ -431,6 +431,8 @@ class HomeAssistant:
         """Initialize new Home Assistant object."""
         from .core_config import Config  # noqa: PLC0415
 
+        _LOGGER.debug("hello")
+
         # This is a dictionary that any component can store any data on.
         self.data = HassDict()
         self.loop = asyncio.get_running_loop()
