@@ -19,11 +19,23 @@ import wave
 import hass_nabucasa
 import voluptuous as vol
 
-from homeassistant.components import conversation, stt, tts, wake_word, websocket_api
+from homeassistant.components import (
+    conversation,
+    media_player,
+    stt,
+    tts,
+    wake_word,
+    websocket_api,
+)
 from homeassistant.const import ATTR_SUPPORTED_FEATURES, MATCH_ALL
 from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import chat_session, intent
+from homeassistant.helpers import (
+    chat_session,
+    device_registry as dr,
+    entity_registry as er,
+    intent,
+)
 from homeassistant.helpers.collection import (
     CHANGE_UPDATED,
     CollectionError,
@@ -45,6 +57,7 @@ from homeassistant.util.limited_size_dict import LimitedSizeDict
 
 from .audio_enhancer import AudioEnhancer, EnhancedAudioChunk, MicroVadSpeexEnhancer
 from .const import (
+    ACKNOWLEDGE_PATH,
     BYTES_PER_CHUNK,
     CONF_DEBUG_RECORDING_DIR,
     DATA_CONFIG,
@@ -113,6 +126,7 @@ PIPELINE_FIELDS: VolDictType = {
     vol.Required("wake_word_entity"): vol.Any(str, None),
     vol.Required("wake_word_id"): vol.Any(str, None),
     vol.Optional("prefer_local_intents"): bool,
+    vol.Optional("acknowledge_media_id"): str,
 }
 
 STORED_PIPELINE_RUNS = 10
@@ -123,7 +137,10 @@ SAVE_DELAY = 10
 @callback
 def _async_local_fallback_intent_filter(result: RecognizeResult) -> bool:
     """Filter out intents that are not local fallback."""
-    return result.intent.name in (intent.INTENT_GET_STATE)
+    return result.intent.name in (
+        intent.INTENT_GET_STATE,
+        media_player.INTENT_MEDIA_SEARCH_AND_PLAY,
+    )
 
 
 @callback
@@ -599,6 +616,9 @@ class PipelineRun:
     _device_id: str | None = None
     """Optional device id set during run start."""
 
+    _satellite_id: str | None = None
+    """Optional satellite id set during run start."""
+
     _conversation_data: PipelineConversationData | None = None
     """Data tied to the conversation ID."""
 
@@ -652,9 +672,12 @@ class PipelineRun:
             return
         pipeline_data.pipeline_debug[self.pipeline.id][self.id].events.append(event)
 
-    def start(self, conversation_id: str, device_id: str | None) -> None:
+    def start(
+        self, conversation_id: str, device_id: str | None, satellite_id: str | None
+    ) -> None:
         """Emit run start event."""
         self._device_id = device_id
+        self._satellite_id = satellite_id
         self._start_debug_recording_thread()
 
         data: dict[str, Any] = {
@@ -662,6 +685,8 @@ class PipelineRun:
             "language": self.language,
             "conversation_id": conversation_id,
         }
+        if satellite_id is not None:
+            data["satellite_id"] = satellite_id
         if self.runner_data is not None:
             data["runner_data"] = self.runner_data
         if self.tts_stream:
@@ -1073,10 +1098,12 @@ class PipelineRun:
         self,
         intent_input: str,
         conversation_id: str,
-        device_id: str | None,
         conversation_extra_system_prompt: str | None,
-    ) -> str:
-        """Run intent recognition portion of pipeline. Returns text to speak."""
+    ) -> tuple[str, bool]:
+        """Run intent recognition portion of pipeline.
+
+        Returns (speech, all_targets_in_satellite_area).
+        """
         if self.intent_agent is None or self._conversation_data is None:
             raise RuntimeError("Recognize intent was not prepared")
 
@@ -1090,7 +1117,8 @@ class PipelineRun:
                     "language": input_language,
                     "intent_input": intent_input,
                     "conversation_id": conversation_id,
-                    "device_id": device_id,
+                    "device_id": self._device_id,
+                    "satellite_id": self._satellite_id,
                     "prefer_local_intents": self.pipeline.prefer_local_intents,
                 },
             )
@@ -1101,7 +1129,8 @@ class PipelineRun:
                 text=intent_input,
                 context=self.context,
                 conversation_id=conversation_id,
-                device_id=device_id,
+                device_id=self._device_id,
+                satellite_id=self._satellite_id,
                 language=input_language,
                 agent_id=self.intent_agent.id,
                 extra_system_prompt=conversation_extra_system_prompt,
@@ -1109,6 +1138,7 @@ class PipelineRun:
 
             agent_id = self.intent_agent.id
             processed_locally = agent_id == conversation.HOME_ASSISTANT_AGENT
+            all_targets_in_satellite_area = False
             intent_response: intent.IntentResponse | None = None
             (
                 agent_id,
@@ -1397,7 +1427,9 @@ class PipelineRun:
                 ),
             ) from err
 
-    async def text_to_speech(self, tts_input: str) -> None:
+    async def text_to_speech(
+        self, tts_input: str, override_media_path: Path | None = None
+    ) -> None:
         """Run text-to-speech portion of pipeline."""
         assert self.tts_stream is not None
 
@@ -1409,11 +1441,14 @@ class PipelineRun:
                     "language": self.pipeline.tts_language,
                     "voice": self.pipeline.tts_voice,
                     "tts_input": tts_input,
+                    "acknowledge_override": override_media_path is not None,
                 },
             )
         )
 
-        if not self._streamed_response_text:
+        if override_media_path:
+            self.tts_stream.async_override_result(override_media_path)
+        elif not self._streamed_response_text:
             self.tts_stream.async_set_message(tts_input)
 
         tts_output = {
@@ -1624,10 +1659,15 @@ class PipelineInput:
     device_id: str | None = None
     """Identifier of the device that is processing the input/output of the pipeline."""
 
+    satellite_id: str | None = None
+    """Identifier of the satellite that is processing the input/output of the pipeline."""
+
     async def execute(self) -> None:
         """Run pipeline."""
         self.run.start(
-            conversation_id=self.session.conversation_id, device_id=self.device_id
+            conversation_id=self.session.conversation_id,
+            device_id=self.device_id,
+            satellite_id=self.satellite_id,
         )
         current_stage: PipelineStage | None = self.run.start_stage
         stt_audio_buffer: list[EnhancedAudioChunk] = []

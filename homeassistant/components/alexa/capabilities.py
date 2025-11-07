@@ -1686,22 +1686,22 @@ class AlexaModeController(AlexaCapability):
                 raise_labels.append(AlexaSemantics.ACTION_OPEN)
                 self._semantics.add_states_to_value(
                     [AlexaSemantics.STATES_CLOSED],
-                    f"{cover.ATTR_POSITION}.{cover.STATE_CLOSED}",
+                    f"{cover.ATTR_POSITION}.{cover.CoverState.CLOSED}",
                 )
                 self._semantics.add_states_to_value(
                     [AlexaSemantics.STATES_OPEN],
-                    f"{cover.ATTR_POSITION}.{cover.STATE_OPEN}",
+                    f"{cover.ATTR_POSITION}.{cover.CoverState.OPEN}",
                 )
 
             self._semantics.add_action_to_directive(
                 lower_labels,
                 "SetMode",
-                {"mode": f"{cover.ATTR_POSITION}.{cover.STATE_CLOSED}"},
+                {"mode": f"{cover.ATTR_POSITION}.{cover.CoverState.CLOSED}"},
             )
             self._semantics.add_action_to_directive(
                 raise_labels,
                 "SetMode",
-                {"mode": f"{cover.ATTR_POSITION}.{cover.STATE_OPEN}"},
+                {"mode": f"{cover.ATTR_POSITION}.{cover.CoverState.OPEN}"},
             )
 
             return self._semantics.serialize_semantics()
