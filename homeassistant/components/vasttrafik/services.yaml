@@ -1,0 +1,18 @@
+plan_journey:
+  name: Plan journey
+  description: Plan a journey between two stops in the Västtrafik network. This service normalizes the input stops (which can be either names or numeric IDs) and prepares them for journey planning.
+  fields:
+    start_stop:
+      name: Start stop
+      description: The starting stop. Can be provided as either a stop name (e.g., "Göteborg Centralstation") or a numeric ID (e.g., "9021014002950000").
+      example: "Göteborg Centralstation"
+      required: true
+      selector:
+        text:
+    end_stop:
+      name: End stop
+      description: The destination stop. Can be provided as either a stop name (e.g., "Landvetter") or a numeric ID (e.g., "9021014062150000").
+      example: "Landvetter"
+      required: true
+      selector:
+        text:
