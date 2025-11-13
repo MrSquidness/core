@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 from homeassistant.util.dt import now
+from . import setup_service
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ def setup_platform(
 ) -> None:
     """Set up the departure sensor."""
     planner = vasttrafik.JournyPlanner(config.get(CONF_KEY), config.get(CONF_SECRET))
+    """Register the plan_journey service."""
+    setup_service(hass, planner)
     add_entities(
         (
             VasttrafikDepartureSensor(
@@ -191,4 +194,4 @@ class VasttrafikDepartureSensor(SensorEntity):
         response = self._planner._request(  # noqa: SLF001
             "journeys", **request_parameters
         )
-        return vasttrafik._get_node(response, "results")  # noqa: SLF001
+        return vasttrafik.journy_planner._get_node(response, "results")  # noqa: SLF001
