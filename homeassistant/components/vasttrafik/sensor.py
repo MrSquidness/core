@@ -77,6 +77,7 @@ def setup_platform(
                 planner,
                 departure.get(CONF_NAME),
                 departure.get(CONF_FROM),
+                "Brunnsparken",
                 departure.get(CONF_HEADING),
                 departure.get(CONF_LINES),
                 departure.get(CONF_DELAY),
@@ -93,11 +94,15 @@ class VasttrafikDepartureSensor(SensorEntity):
     _attr_attribution = "Data provided by Västtrafik"
     _attr_icon = "mdi:train"
 
-    def __init__(self, planner, name, departure, heading, lines, delay):
+    def __init__(self, planner, name, departure, stop, heading, lines, delay):
         """Initialize the sensor."""
         self._planner = planner
         self._name = name or departure
         self._departure = self.get_station_id(departure)
+        if stop != "":
+            self._stop = self.get_station_id(stop)
+        else:
+            self._stop = ""
         self._heading = self.get_station_id(heading)
         self._lines = lines if lines else None
         self._delay = timedelta(minutes=delay)
@@ -131,11 +136,64 @@ class VasttrafikDepartureSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self) -> None:
-        """Get the journey."""
+        if self._stop != "":
+            a = self._get_journey(
+                self._departure["station_id"], self._stop["station_id"]
+            )
+            b = self._get_journey(self._stop["station_id"], self._heading["station_id"])
+            c = a + b
+        else:
+            c = self._get_journey(
+                self._departure["station_id"], self._heading["station_id"]
+            )
+
+        departure = c[0]
+
+        """Proof of function"""
+        _LOGGER.debug(
+            "%s ->",
+            departure.get("origin", {}).get("stopPoint", {}).get("name", {}),
+        )
+        for trip in c:
+            _LOGGER.debug(
+                "-> %s",
+                trip.get("destination", {}).get("stopPoint", {}).get("name", {}),
+            )
+
+        if not departure.get("isCancelled"):
+            if "estimatedOtherwisePlannedDepartureTime" in departure:
+                try:
+                    self._state = datetime.fromisoformat(
+                        departure["estimatedOtherwisePlannedDepartureTime"]
+                    ).strftime("%H:%M")
+                except ValueError:
+                    self._state = departure["estimatedOtherwisePlannedDepartureTime"]
+            else:
+                self._state = None
+
+            stop_point = departure.get("destination", {}).get("stopPoint", {})
+            service_journey = departure.get("serviceJourney", {})
+            line = service_journey.get("line", {})
+
+            params = {
+                ATTR_ACCESSIBILITY: "wheelChair"
+                if line.get("isWheelchairAccessible")
+                else None,
+                ATTR_DIRECTION: service_journey.get("shortDirection"),
+                ATTR_LINE: line.get("shortName"),
+                ATTR_TRACK: stop_point.get("platform"),
+                ATTR_FROM: stop_point.get("name"),
+                ATTR_TO: self._heading["station_name"],
+                ATTR_DELAY: self._delay.seconds // 60 % 60,
+            }
+
+            self._attributes = {k: v for k, v in params.items() if v}
+
+    def _get_journey(self, origin, destination) -> list:
         try:
             self._journeys = self._custom_journey_call(
-                self._departure["station_id"],
-                self._heading["station_id"],
+                origin,
+                destination,
             )
         except vasttrafik.Error:
             _LOGGER.debug("Unable to read departure board, updating token")
@@ -144,52 +202,22 @@ class VasttrafikDepartureSensor(SensorEntity):
         if not self._journeys:
             _LOGGER.debug(
                 "No departures from departure station %s to destination station %s",
-                self._departure["station_name"],
-                self._heading["station_name"],
+                origin,
+                destination,
             )
             self._state = None
             self._attributes = {}
+            return []
         else:
-            for journey in self._journeys:
-                departure = journey.get("tripLegs", {})[0]
-
-                if not departure.get("isCancelled"):
-                    if "estimatedOtherwisePlannedDepartureTime" in departure:
-                        try:
-                            self._state = datetime.fromisoformat(
-                                departure["estimatedOtherwisePlannedDepartureTime"]
-                            ).strftime("%H:%M")
-                        except ValueError:
-                            self._state = departure[
-                                "estimatedOtherwisePlannedDepartureTime"
-                            ]
-                    else:
-                        self._state = None
-
-                    stop_point = departure.get("destination", {}).get("stopPoint", {})
-                    service_journey = departure.get("serviceJourney", {})
-                    line = service_journey.get("line", {})
-
-                    params = {
-                        ATTR_ACCESSIBILITY: "wheelChair"
-                        if line.get("isWheelchairAccessible")
-                        else None,
-                        ATTR_DIRECTION: service_journey.get("shortDirection"),
-                        ATTR_LINE: line.get("shortName"),
-                        ATTR_TRACK: stop_point.get("platform"),
-                        ATTR_FROM: stop_point.get("name"),
-                        ATTR_TO: self._heading["station_name"],
-                        ATTR_DELAY: self._delay.seconds // 60 % 60,
-                    }
-
-                    self._attributes = {k: v for k, v in params.items() if v}
-                    break
+            return self._journeys[0].get("tripLegs", {})
 
     # From journy_planner.py trip()
     def _custom_journey_call(self, origin_id, dest_id):
         request_parameters = {
             "originGid": origin_id,
             "destinationGid": dest_id,
+            "originWalk": "50",
+            "destWalk": "50",
         }
         response = self._planner._request(  # noqa: SLF001
             "journeys", **request_parameters
