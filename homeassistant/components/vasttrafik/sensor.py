@@ -207,9 +207,14 @@ class VasttrafikDepartureSensor(SensorEntity):
             )
             self._state = None
             self._attributes = {}
+            print("EMPTY")
             return []
         else:
-            return self._journeys[0].get("tripLegs", {})
+            trips = self._journeys[0].get("tripLegs", {})
+            if trips:
+                return trips
+            else:
+                return []
 
     # From journy_planner.py trip()
     def _custom_journey_call(self, origin_id, dest_id):
