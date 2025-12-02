@@ -18,7 +18,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
-from homeassistant.util.dt import now
+
 from . import setup_service
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ def setup_platform(
                 planner,
                 departure.get(CONF_NAME),
                 departure.get(CONF_FROM),
-                "Brunnsparken",
+                "",
                 departure.get(CONF_HEADING),
                 departure.get(CONF_LINES),
                 departure.get(CONF_DELAY),
@@ -148,6 +148,7 @@ class VasttrafikDepartureSensor(SensorEntity):
             )
 
         departure = c[0]
+        print(c)
 
         """Proof of function"""
         _LOGGER.debug(
@@ -171,23 +172,34 @@ class VasttrafikDepartureSensor(SensorEntity):
             else:
                 self._state = None
 
-            stop_point = departure.get("destination", {}).get("stopPoint", {})
-            service_journey = departure.get("serviceJourney", {})
-            line = service_journey.get("line", {})
+            # Build full multileg attribute list
+            legs = []
 
-            params = {
-                ATTR_ACCESSIBILITY: "wheelChair"
-                if line.get("isWheelchairAccessible")
-                else None,
-                ATTR_DIRECTION: service_journey.get("shortDirection"),
-                ATTR_LINE: line.get("shortName"),
-                ATTR_TRACK: stop_point.get("platform"),
-                ATTR_FROM: stop_point.get("name"),
-                ATTR_TO: self._heading["station_name"],
-                ATTR_DELAY: self._delay.seconds // 60 % 60,
+            for leg in c:
+                origin = leg.get("origin", {}).get("stopPoint", {})
+                dest = leg.get("destination", {}).get("stopPoint", {})
+                service = leg.get("serviceJourney", {})
+                line = service.get("line", {})
+
+                legs.append(
+                    {
+                        "from": origin.get("name"),
+                        "to": dest.get("name"),
+                        "line": line.get("shortName"),
+                        "direction": service.get("shortDirection"),
+                        "track": origin.get("platform"),
+                        "accessible": line.get("isWheelchairAccessible"),
+                    }
+                )
+
+            # Store attributes: full journey preserved
+            self._attributes = {
+                "legs": legs,
+                "from": legs[0].get("from"),
+                "to": legs[-1].get("to"),
+                "delay": self._delay.seconds // 60 % 60,
             }
-
-            self._attributes = {k: v for k, v in params.items() if v}
+        print(legs)
 
     def _get_journey(self, origin, destination) -> list:
         try:
@@ -209,12 +221,10 @@ class VasttrafikDepartureSensor(SensorEntity):
             self._attributes = {}
             print("EMPTY")
             return []
-        else:
-            trips = self._journeys[0].get("tripLegs", {})
-            if trips:
-                return trips
-            else:
-                return []
+        trips = self._journeys[0].get("tripLegs", {})
+        if trips:
+            return trips
+        return []
 
     # From journy_planner.py trip()
     def _custom_journey_call(self, origin_id, dest_id):
