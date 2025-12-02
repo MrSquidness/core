@@ -175,6 +175,7 @@ class VasttrafikDepartureSensor(SensorEntity):
                         "direction": service.get("shortDirection"),
                         "track": origin.get("platform"),
                         "accessible": line.get("isWheelchairAccessible"),
+                        "time": line.get("estimatedOtherwisePlannedTime"),
                     }
                 )
 
@@ -210,6 +211,9 @@ class VasttrafikDepartureSensor(SensorEntity):
                         "direction": service.get("shortDirection"),
                         "track": origin.get("platform"),
                         "accessible": line.get("isWheelchairAccessible"),
+                        "time": datetime.fromisoformat(
+                            line.get("estimatedOtherwisePlannedTime")
+                        ).strftime("%H:%M"),
                     }
                 )
 
@@ -219,13 +223,13 @@ class VasttrafikDepartureSensor(SensorEntity):
                 "legs": legs0,
                 "from": legs0[0].get("from"),
                 "to": legs0[-1].get("to"),
-                "delay": self._delay.seconds // 60 % 60,
+                "delay": legs0[0]["time"],
             },
             "journey1": {
                 "legs": legs1,
                 "from": legs1[0].get("from"),
                 "to": legs1[-1].get("to"),
-                "delay": self._delay.seconds // 60 % 60,
+                "delay": legs1[0]["time"],
             },
         }
 
