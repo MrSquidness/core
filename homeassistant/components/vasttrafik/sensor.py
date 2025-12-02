@@ -32,8 +32,10 @@ ATTR_TO = "to"
 ATTR_DELAY = "delay"
 
 CONF_DEPARTURES = "departures"
-CONF_FROM = "from"
-CONF_HEADING = "heading"
+CONF_FROM0 = "from0"
+CONF_HEADING0 = "heading0"
+CONF_FROM1 = "from1"
+CONF_HEADING1 = "heading1"
 CONF_LINES = "lines"
 CONF_KEY = "key"
 CONF_SECRET = "secret"
@@ -48,9 +50,11 @@ PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
         vol.Required(CONF_SECRET): cv.string,
         vol.Required(CONF_DEPARTURES): [
             {
-                vol.Required(CONF_FROM): cv.string,
+                vol.Required(CONF_FROM0): cv.string,
+                vol.Required(CONF_HEADING0): cv.string,
+                vol.Optional(CONF_FROM1): cv.string,
+                vol.Optional(CONF_HEADING1): cv.string,
                 vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_int,
-                vol.Optional(CONF_HEADING): cv.string,
                 vol.Optional(CONF_LINES, default=[]): vol.All(
                     cv.ensure_list, [cv.string]
                 ),
@@ -76,9 +80,10 @@ def setup_platform(
             VasttrafikDepartureSensor(
                 planner,
                 departure.get(CONF_NAME),
-                departure.get(CONF_FROM),
-                "",
-                departure.get(CONF_HEADING),
+                departure.get(CONF_FROM0),
+                departure.get(CONF_HEADING0),
+                departure.get(CONF_FROM1),
+                departure.get(CONF_HEADING1),
                 departure.get(CONF_LINES),
                 departure.get(CONF_DELAY),
             )
@@ -94,16 +99,18 @@ class VasttrafikDepartureSensor(SensorEntity):
     _attr_attribution = "Data provided by Västtrafik"
     _attr_icon = "mdi:train"
 
-    def __init__(self, planner, name, departure, stop, heading, lines, delay):
+    def __init__(
+        self, planner, name, departure0, heading0, departure1, heading1, lines, delay
+    ):
         """Initialize the sensor."""
         self._planner = planner
-        self._name = name or departure
-        self._departure = self.get_station_id(departure)
-        if stop != "":
-            self._stop = self.get_station_id(stop)
-        else:
-            self._stop = ""
-        self._heading = self.get_station_id(heading)
+        self._name = name or departure0
+        self._departure = []
+        self._heading = []
+        self._departure.append(self.get_station_id(departure0))
+        self._heading.append(self.get_station_id(heading0))
+        self._departure.append(self.get_station_id(departure1))
+        self._heading.append(self.get_station_id(heading1))
         self._lines = lines if lines else None
         self._delay = timedelta(minutes=delay)
         self._journeys = None
@@ -136,44 +143,23 @@ class VasttrafikDepartureSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self) -> None:
-        if self._stop != "":
-            a = self._get_journey(
-                self._departure["station_id"], self._stop["station_id"]
-            )
-            b = self._get_journey(self._stop["station_id"], self._heading["station_id"])
-            c = a + b
-        else:
-            c = self._get_journey(
-                self._departure["station_id"], self._heading["station_id"]
-            )
-
-        departure = c[0]
-        print(c)
-
-        """Proof of function"""
-        _LOGGER.debug(
-            "%s ->",
-            departure.get("origin", {}).get("stopPoint", {}).get("name", {}),
+        c = self._get_journey(
+            self._departure[0]["station_id"], self._heading[0]["station_id"]
         )
-        for trip in c:
-            _LOGGER.debug(
-                "-> %s",
-                trip.get("destination", {}).get("stopPoint", {}).get("name", {}),
-            )
 
-        if not departure.get("isCancelled"):
-            if "estimatedOtherwisePlannedDepartureTime" in departure:
+        if not c[0].get("isCancelled"):
+            if "estimatedOtherwisePlannedDepartureTime" in c[0]:
                 try:
                     self._state = datetime.fromisoformat(
-                        departure["estimatedOtherwisePlannedDepartureTime"]
+                        c[0]["estimatedOtherwisePlannedDepartureTime"]
                     ).strftime("%H:%M")
                 except ValueError:
-                    self._state = departure["estimatedOtherwisePlannedDepartureTime"]
+                    self._state = c[0]["estimatedOtherwisePlannedDepartureTime"]
             else:
                 self._state = None
 
             # Build full multileg attribute list
-            legs = []
+            legs0 = []
 
             for leg in c:
                 origin = leg.get("origin", {}).get("stopPoint", {})
@@ -181,7 +167,7 @@ class VasttrafikDepartureSensor(SensorEntity):
                 service = leg.get("serviceJourney", {})
                 line = service.get("line", {})
 
-                legs.append(
+                legs0.append(
                     {
                         "from": origin.get("name"),
                         "to": dest.get("name"),
@@ -192,14 +178,56 @@ class VasttrafikDepartureSensor(SensorEntity):
                     }
                 )
 
-            # Store attributes: full journey preserved
-            self._attributes = {
-                "legs": legs,
-                "from": legs[0].get("from"),
-                "to": legs[-1].get("to"),
+        c = self._get_journey(
+            self._departure[1]["station_id"], self._heading[1]["station_id"]
+        )
+
+        if not c[0].get("isCancelled"):
+            if "estimatedOtherwisePlannedDepartureTime" in c[0]:
+                try:
+                    self._state = datetime.fromisoformat(
+                        c[0]["estimatedOtherwisePlannedDepartureTime"]
+                    ).strftime("%H:%M")
+                except ValueError:
+                    self._state = c[0]["estimatedOtherwisePlannedDepartureTime"]
+            else:
+                self._state = None
+
+            # Build full multileg attribute list
+            legs1 = []
+
+            for leg in c:
+                origin = leg.get("origin", {}).get("stopPoint", {})
+                dest = leg.get("destination", {}).get("stopPoint", {})
+                service = leg.get("serviceJourney", {})
+                line = service.get("line", {})
+
+                legs1.append(
+                    {
+                        "from": origin.get("name"),
+                        "to": dest.get("name"),
+                        "line": line.get("shortName"),
+                        "direction": service.get("shortDirection"),
+                        "track": origin.get("platform"),
+                        "accessible": line.get("isWheelchairAccessible"),
+                    }
+                )
+
+        # Store attributes: full journey preserved
+        self._attributes = {
+            "journey0": {
+                "legs": legs0,
+                "from": legs0[0].get("from"),
+                "to": legs0[-1].get("to"),
                 "delay": self._delay.seconds // 60 % 60,
-            }
-        print(legs)
+            },
+            "journey1": {
+                "legs": legs1,
+                "from": legs1[0].get("from"),
+                "to": legs1[-1].get("to"),
+                "delay": self._delay.seconds // 60 % 60,
+            },
+        }
 
     def _get_journey(self, origin, destination) -> list:
         try:
