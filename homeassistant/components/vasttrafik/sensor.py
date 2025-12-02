@@ -175,7 +175,9 @@ class VasttrafikDepartureSensor(SensorEntity):
                         "direction": service.get("shortDirection"),
                         "track": origin.get("platform"),
                         "accessible": line.get("isWheelchairAccessible"),
-                        "time": line.get("estimatedOtherwisePlannedTime"),
+                        "time": datetime.fromisoformat(
+                            leg.get("estimatedOtherwisePlannedDepartureTime")
+                        ).strftime("%H:%M"),
                     }
                 )
 
@@ -212,7 +214,7 @@ class VasttrafikDepartureSensor(SensorEntity):
                         "track": origin.get("platform"),
                         "accessible": line.get("isWheelchairAccessible"),
                         "time": datetime.fromisoformat(
-                            line.get("estimatedOtherwisePlannedTime")
+                            leg.get("estimatedOtherwisePlannedDepartureTime")
                         ).strftime("%H:%M"),
                     }
                 )
