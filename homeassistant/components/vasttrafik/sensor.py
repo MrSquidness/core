@@ -20,13 +20,17 @@ from homeassistant.util import Throttle
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTR_ACCESSIBILITY = "accessibility"
-ATTR_DIRECTION = "direction"
-ATTR_LINE = "line"
-ATTR_TRACK = "track"
+ATTR_DELAY = "delay"
 ATTR_FROM = "from"
 ATTR_TO = "to"
-ATTR_DELAY = "delay"
+ATTR_LEGS = "legs"
+ATTR_LEG_ACCESSIBILITY = "accessibility"
+ATTR_LEG_DIRECTION = "direction"
+ATTR_LEG_LINE = "line"
+ATTR_LEG_TRACK = "track"
+ATTR_LEG_FROM = "from"
+ATTR_LEG_TO = "to"
+ATTR_LEG_TIME = "time"
 
 CONF_DEPARTURES = "departures"
 CONF_JOURNEY_NAME = "name"
@@ -161,10 +165,10 @@ class VasttrafikDepartureSensor(SensorEntity):
 
             if not journey_trip_legs or journey_trip_legs[0].get("isCancelled"):
                 self._attributes[journey["name"]] = {
-                    "legs": [],
-                    "from": journey["from"]["station_id"],
-                    "to": journey["from"]["station_id"],
-                    "delay": 0,
+                    ATTR_LEGS: [],
+                    ATTR_FROM: journey["from"]["station_id"],
+                    ATTR_TO: journey["from"]["station_id"],
+                    ATTR_DELAY: 0,
                 }
                 continue
 
@@ -183,10 +187,10 @@ class VasttrafikDepartureSensor(SensorEntity):
             legs_information = self._build_legs_information(journey_trip_legs)
 
             self._attributes[journey["name"]] = {
-                "legs": legs_information,
-                "from": legs_information[0].get("from"),
-                "to": legs_information[-1].get("to"),
-                "delay": legs_information[0]["time"],
+                ATTR_LEGS: legs_information,
+                ATTR_FROM: legs_information[0].get("from"),
+                ATTR_TO: legs_information[-1].get("to"),
+                ATTR_DELAY: legs_information[0]["time"],
             }
 
     def _build_legs_information(self, journey_trip_legs):
@@ -201,13 +205,15 @@ class VasttrafikDepartureSensor(SensorEntity):
 
             legs_information.append(
                 {
-                    "from": origin.get("name"),
-                    "to": dest.get("name"),
-                    "line": line.get("shortName"),
-                    "direction": service.get("shortDirection"),
-                    "track": origin.get("platform"),
-                    "accessible": line.get("isWheelchairAccessible"),
-                    "time": datetime.fromisoformat(
+                    ATTR_LEG_FROM: origin.get("name"),
+                    ATTR_LEG_TO: dest.get("name"),
+                    ATTR_LEG_LINE: line.get("shortName"),
+                    ATTR_LEG_DIRECTION: service.get("directionDetails").get(
+                        "shortDirection"
+                    ),
+                    ATTR_LEG_TRACK: origin.get("platform"),
+                    ATTR_LEG_ACCESSIBILITY: line.get("isWheelchairAccessible"),
+                    ATTR_LEG_TIME: datetime.fromisoformat(
                         leg.get("estimatedOtherwisePlannedDepartureTime")
                     ).strftime("%H:%M"),
                 }
