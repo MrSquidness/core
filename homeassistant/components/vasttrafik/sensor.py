@@ -180,27 +180,7 @@ class VasttrafikDepartureSensor(SensorEntity):
             else:
                 self._state = None
 
-            legs_information = []
-
-            for leg in journey_trip_legs:
-                origin = leg.get("origin", {}).get("stopPoint", {})
-                dest = leg.get("destination", {}).get("stopPoint", {})
-                service = leg.get("serviceJourney", {})
-                line = service.get("line", {})
-
-                legs_information.append(
-                    {
-                        "from": origin.get("name"),
-                        "to": dest.get("name"),
-                        "line": line.get("shortName"),
-                        "direction": service.get("shortDirection"),
-                        "track": origin.get("platform"),
-                        "accessible": line.get("isWheelchairAccessible"),
-                        "time": datetime.fromisoformat(
-                            leg.get("estimatedOtherwisePlannedDepartureTime")
-                        ).strftime("%H:%M"),
-                    }
-                )
+            legs_information = self._build_legs_information(journey_trip_legs)
 
             self._attributes[journey["name"]] = {
                 "legs": legs_information,
@@ -208,6 +188,32 @@ class VasttrafikDepartureSensor(SensorEntity):
                 "to": legs_information[-1].get("to"),
                 "delay": legs_information[0]["time"],
             }
+
+    def _build_legs_information(self, journey_trip_legs):
+        """Build multileg journey info from raw trip legs."""
+        legs_information = []
+
+        for leg in journey_trip_legs:
+            origin = leg.get("origin", {}).get("stopPoint", {})
+            dest = leg.get("destination", {}).get("stopPoint", {})
+            service = leg.get("serviceJourney", {})
+            line = service.get("line", {})
+
+            legs_information.append(
+                {
+                    "from": origin.get("name"),
+                    "to": dest.get("name"),
+                    "line": line.get("shortName"),
+                    "direction": service.get("shortDirection"),
+                    "track": origin.get("platform"),
+                    "accessible": line.get("isWheelchairAccessible"),
+                    "time": datetime.fromisoformat(
+                        leg.get("estimatedOtherwisePlannedDepartureTime")
+                    ).strftime("%H:%M"),
+                }
+            )
+
+        return legs_information
 
     def _get_journey(self, origin, destination, transfers) -> list:
         if not transfers:
