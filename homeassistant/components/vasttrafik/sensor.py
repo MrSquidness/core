@@ -102,7 +102,7 @@ class VasttrafikDepartureSensor(SensorEntity):
         self._journeys = []
 
         i = 0
-        for journey in journeys:
+        for journey in journeys:  # Parse the config data into an array of journeys.
             if CONF_JOURNEY_NAME in journey:
                 journey_name = journey[CONF_JOURNEY_NAME]
             else:
@@ -152,16 +152,19 @@ class VasttrafikDepartureSensor(SensorEntity):
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self) -> None:
+        """Update the attributes variable to contain the latest data from vasttrafik."""
         self._attributes = {}
 
-        for journey in self._journeys:
+        for (
+            journey
+        ) in self._journeys:  # Add the data for each journey requested by the user.
             transfer_ids = [t["station_id"] for t in journey["transfers"]]
 
             journey_trip_legs = self._get_journey(
                 journey["from"]["station_id"],
                 journey["heading"]["station_id"],
                 transfer_ids,
-            )
+            )  # Get the data for the current journey from the API.
 
             if not journey_trip_legs or journey_trip_legs[0].get("isCancelled"):
                 self._attributes[journey["name"]] = {
@@ -169,7 +172,7 @@ class VasttrafikDepartureSensor(SensorEntity):
                     ATTR_FROM: journey["from"]["station_id"],
                     ATTR_TO: journey["from"]["station_id"],
                     ATTR_DELAY: 0,
-                }
+                }  # Append empty data if journey is invalid.
                 continue
 
             if "estimatedOtherwisePlannedDepartureTime" in journey_trip_legs[0]:
@@ -191,7 +194,7 @@ class VasttrafikDepartureSensor(SensorEntity):
                 ATTR_FROM: legs_information[0].get("from"),
                 ATTR_TO: legs_information[-1].get("to"),
                 ATTR_DELAY: legs_information[0]["time"],
-            }
+            }  # Append the current journeys data to the dictionary.
 
     def _build_legs_information(self, journey_trip_legs):
         """Build multileg journey info from raw trip legs."""
@@ -222,6 +225,10 @@ class VasttrafikDepartureSensor(SensorEntity):
         return legs_information
 
     def _get_journey(self, origin, destination, transfers) -> list:
+        """Get the combined trip legs needed for a journey.
+
+        Journey goes from origin, to destination, and through optional transfers.
+        """
         if not transfers:
             return self._call_simple(origin, destination)
 
@@ -237,6 +244,7 @@ class VasttrafikDepartureSensor(SensorEntity):
         return full_trip
 
     def _call_simple(self, origin_id, dest_id):
+        """Get and clean up the API return for a journey."""
         try:
             api_return = self._custom_journey_call(origin_id, dest_id)
         except vasttrafik.Error:
